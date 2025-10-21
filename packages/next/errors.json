@@ -927,5 +927,8 @@
   "926": "Optional route parameters are not yet supported (\"[%s]\") in route \"%s\".",
   "927": "An unexpected error occurred while adjusting `_idleStart` on an atomic timer",
   "928": "createAtomicTimerGroup cannot be called in the edge runtime",
-  "929": "Cannot schedule more timers into a group that already executed"
+  "929": "Cannot schedule more timers into a group that already executed",
+  "930": "Route \"%s\" did not produce a static shell and Next.js was unable to determine a reason.",
+  "931": "The next-server runtime is not available in Edge runtime.",
+  "932": "`abandonRender` called on a stage controller that cannot be abandoned."
 }
