@@ -930,5 +930,7 @@
   "929": "Cannot schedule more timers into a group that already executed",
   "930": "Route \"%s\" did not produce a static shell and Next.js was unable to determine a reason.",
   "931": "The next-server runtime is not available in Edge runtime.",
-  "932": "`abandonRender` called on a stage controller that cannot be abandoned."
+  "932": "`abandonRender` called on a stage controller that cannot be abandoned.",
+  "933": "Expected debug stream to be a ReadableStream",
+  "934": "Expected debug stream to be a Readable"
 }
