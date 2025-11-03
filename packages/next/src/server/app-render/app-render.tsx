@@ -819,10 +819,6 @@ async function generateDynamicFlightRenderResultWithStagesInDev(
   let debugChannel: DebugChannelPair | undefined
   let stream: ReadableStream<Uint8Array>
 
-  console.log('RSC', {
-    createRequestStore,
-    bypassCaches: !isBypassingCachesInDev(renderOpts, initialRequestStore),
-  })
   if (
     // We only do this flow if we can safely recreate the store from scratch
     // (which is not the case for renders after an action)
@@ -3602,15 +3598,6 @@ async function spawnStaticShellValidationInDev(
   fallbackRouteParams: OpaqueFallbackRouteParams | null,
   debugChannelClient: Readable | undefined
 ): Promise<void> {
-  console.log('spawnStaticShellValidationInDev !!!!!!!!!!!!')
-  let dec = new TextDecoder()
-  console.log({
-    staticServerChunks: staticServerChunks.map((c) => dec.decode(c)),
-  })
-  console.log({
-    runtimeServerChunks: runtimeServerChunks.map((c) => dec.decode(c)),
-  })
-
   // TODO replace this with a delay on the entire dev render once the result is propagated
   // via the websocket and not the main render itself
   await new Promise((r) => setTimeout(r, 300))
@@ -3643,7 +3630,6 @@ async function spawnStaticShellValidationInDev(
         messages: [invalidDynamicUsageError],
       })
     )
-    console.log({ invalidDynamicUsageError })
     return
   }
 
@@ -3653,7 +3639,6 @@ async function spawnStaticShellValidationInDev(
         messages: [staticInterruptReason],
       })
     )
-    console.log({ staticInterruptReason })
     return
   }
 
@@ -3663,7 +3648,6 @@ async function spawnStaticShellValidationInDev(
         messages: [runtimeInterruptReason],
       })
     )
-    console.log({ runtimeInterruptReason })
     return
   }
 
@@ -3699,8 +3683,6 @@ async function spawnStaticShellValidationInDev(
     trackDynamicHoleInRuntimeShell
   )
 
-  console.log({ runtimeResult })
-
   if (runtimeResult.length > 0) {
     // We have something to report from the runtime validation
     // We can skip the static validation
@@ -3722,8 +3704,6 @@ async function spawnStaticShellValidationInDev(
     hmrRefreshHash,
     trackDynamicHoleInStaticShell
   )
-
-  console.log({ staticResult })
 
   // We always resolve with whatever results we got. It might be empty in which
   // case there will be nothing to report once
@@ -3948,7 +3928,6 @@ async function validateStagedShell(
             {
               signal: clientReactController.signal,
               onError: (err: unknown, errorInfo: ErrorInfo) => {
-                console.log('HOLE', err, errorInfo.componentStack)
                 if (
                   isPrerenderInterruptedError(err) ||
                   clientReactController.signal.aborted
