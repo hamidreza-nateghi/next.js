@@ -864,7 +864,6 @@ async function generateDynamicFlightRenderResultWithStagesInDev(
       consoleAsyncStorage.run(
         { dim: true },
         spawnStaticShellValidationInDev,
-        resolveValidation,
         staticChunks,
         runtimeChunks,
         dynamicChunks,
@@ -2667,7 +2666,6 @@ async function renderToStream(
       // We only have a Prerender environment for projects opted into cacheComponents
       cacheComponents
     ) {
-      const [resolveValidation, validationOutlet] = createValidationOutlet()
       let debugChannel: DebugChannelPair | undefined
       const getPayload = async (
         // eslint-disable-next-line @typescript-eslint/no-shadow
@@ -2692,12 +2690,6 @@ async function renderToStream(
           payload._bypassCachesInDev = createElement(WarnForBypassCachesInDev, {
             route: workStore.route,
           })
-        } else {
-          // Placing the validation outlet in the payload is safe
-          // even if we end up discarding a render and restarting,
-          // because we're not going to wait for the stream to complete,
-          // so leaving the validation unresolved is fine.
-          payload._validation = validationOutlet
         }
 
         return payload
@@ -2740,7 +2732,6 @@ async function renderToStream(
         consoleAsyncStorage.run(
           { dim: true },
           spawnStaticShellValidationInDev,
-          resolveValidation,
           staticChunks,
           runtimeChunks,
           dynamicChunks,
@@ -3620,13 +3611,58 @@ function createValidationOutlet() {
 }
 
 /**
+ * Logs the given messages, and sends the error instances to the browser as an
+ * RSC stream, where they can be deserialized and logged (or otherwise presented
+ * in the devtools), while leveraging React's capabilities to not only
+ * source-map the stack frames (via findSourceMapURL), but also create virtual
+ * server modules that allow users to inspect the server source code in the
+ * browser.
+ */
+async function logMessagesAndSendErrorsToBrowser(
+  messages: unknown[],
+  ctx: AppRenderContext
+): Promise<void> {
+  const {
+    clientReferenceManifest,
+    componentMod: ComponentMod,
+    htmlRequestId,
+    renderOpts,
+  } = ctx
+
+  const { sendErrorsToBrowser } = renderOpts
+
+  const errors: Error[] = []
+  for (const message of messages) {
+    console.error(message)
+    if (message instanceof Error) {
+      errors.push(message)
+    }
+  }
+
+  if (errors.length > 0) {
+    if (!sendErrorsToBrowser) {
+      throw new InvariantError(
+        'Expected `sendErrorsToBrowser` to be defined in renderOpts.'
+      )
+    }
+
+    const errorsRscStream = ComponentMod.renderToReadableStream(
+      errors,
+      clientReferenceManifest.clientModules,
+      { filterStackFrame }
+    )
+
+    sendErrorsToBrowser(errorsRscStream, htmlRequestId)
+  }
+}
+
+/**
  * This function is a fork of prerenderToStream cacheComponents branch.
  * While it doesn't return a stream we want it to have identical
  * prerender semantics to prerenderToStream and should update it
  * in conjunction with any changes to that function.
  */
 async function spawnStaticShellValidationInDev(
-  resolveValidation: (validatingElement: ReactNode) => void,
   staticServerChunks: Array<Uint8Array>,
   runtimeServerChunks: Array<Uint8Array>,
   dynamicServerChunks: Array<Uint8Array>,
@@ -3661,36 +3697,19 @@ async function spawnStaticShellValidationInDev(
     NEXT_HMR_REFRESH_HASH_COOKIE
   )?.value
 
-  const { createElement } = ComponentMod
-
   // We don't need to continue the prerender process if we already
   // detected invalid dynamic usage in the initial prerender phase.
   const { invalidDynamicUsageError } = workStore
   if (invalidDynamicUsageError) {
-    resolveValidation(
-      createElement(ReportValidation, {
-        messages: [invalidDynamicUsageError],
-      })
-    )
-    return
+    return logMessagesAndSendErrorsToBrowser([invalidDynamicUsageError], ctx)
   }
 
   if (staticInterruptReason) {
-    resolveValidation(
-      createElement(ReportValidation, {
-        messages: [staticInterruptReason],
-      })
-    )
-    return
+    return logMessagesAndSendErrorsToBrowser([staticInterruptReason], ctx)
   }
 
   if (runtimeInterruptReason) {
-    resolveValidation(
-      createElement(ReportValidation, {
-        messages: [runtimeInterruptReason],
-      })
-    )
-    return
+    return logMessagesAndSendErrorsToBrowser([runtimeInterruptReason], ctx)
   }
 
   // First we warmup SSR with the runtime chunks. This ensures that when we do
@@ -3729,10 +3748,7 @@ async function spawnStaticShellValidationInDev(
   if (runtimeResult.length > 0) {
     // We have something to report from the runtime validation
     // We can skip the static validation
-    resolveValidation(
-      createElement(ReportValidation, { messages: runtimeResult })
-    )
-    return
+    return logMessagesAndSendErrorsToBrowser(runtimeResult, ctx)
   }
 
   const staticResult = await validateStagedShell(
@@ -3749,11 +3765,7 @@ async function spawnStaticShellValidationInDev(
     trackDynamicHoleInStaticShell
   )
 
-  // We always resolve with whatever results we got. It might be empty in which
-  // case there will be nothing to report once
-  resolveValidation(createElement(ReportValidation, { messages: staticResult }))
-
-  return
+  return logMessagesAndSendErrorsToBrowser(staticResult, ctx)
 }
 
 async function warmupModuleCacheForRuntimeValidationInDev(
@@ -4046,13 +4058,6 @@ async function validateStagedShell(
 
     return errors
   }
-}
-
-function ReportValidation({ messages }: { messages: Array<unknown> }): null {
-  for (const message of messages) {
-    console.error(message)
-  }
-  return null
 }
 
 type PrerenderToStreamResult = {

@@ -937,5 +937,8 @@
   "936": "Unexpected stream chunk while in Before stage",
   "937": "getFlightStream should always receive a ReadableStream when using the edge runtime",
   "938": "nodeStreamFromReadableStream cannot be used in the edge runtime",
-  "939": "createNodeStreamFromChunks cannot be used in the edge runtime"
+  "939": "createNodeStreamFromChunks cannot be used in the edge runtime",
+  "940": "Failed to deserialize errors.",
+  "941": "Expected `sendErrorsToBrowser` to be defined in renderOpts.",
+  "942": "Failed to serialize errors."
 }

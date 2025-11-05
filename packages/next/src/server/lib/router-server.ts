@@ -729,6 +729,8 @@ export async function initialize(opts: {
     setReactDebugChannel: config.experimental.reactDebugChannel
       ? devBundlerService?.setReactDebugChannel.bind(devBundlerService)
       : undefined,
+    sendErrorsToBrowser:
+      devBundlerService?.sendErrorsToBrowser.bind(devBundlerService),
   }
 
   const logError = async (

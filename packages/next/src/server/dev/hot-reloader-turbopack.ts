@@ -125,6 +125,7 @@ import { recordMcpTelemetry } from '../mcp/mcp-telemetry-tracker'
 import { getFileLogger } from './browser-logs/file-logger'
 import type { ServerCacheStatus } from '../../next-devtools/dev-overlay/cache-indicator'
 import type { Lockfile } from '../../build/lockfile'
+import { streamToUint8Array } from '../stream-utils/node-web-streams-helper'
 
 const wsServer = new ws.Server({ noServer: true })
 const isTestMode = !!(
@@ -440,6 +441,10 @@ export async function createHotReloaderTurbopack(
   const clientsWithoutHtmlRequestId = new Set<ws>()
   const clientsByHtmlRequestId = new Map<string, ws>()
   const cacheStatusesByHtmlRequestId = new Map<string, ServerCacheStatus>()
+  const errorsRscStreamsByHtmlRequestId = new Map<
+    string,
+    ReadableStream<Uint8Array>
+  >()
   const clientStates = new WeakMap<ws, ClientState>()
 
   function sendToClient(client: ws, message: HmrMessageSentToBrowser) {
@@ -905,6 +910,23 @@ export async function createHotReloaderTurbopack(
           } else {
             onUpgrade(client, { isLegacyClient: true })
           }
+
+          connectReactDebugChannelForHtmlRequest(
+            htmlRequestId,
+            sendToClient.bind(null, client)
+          )
+
+          const errorsRscStream =
+            errorsRscStreamsByHtmlRequestId.get(htmlRequestId)
+          if (errorsRscStream !== undefined) {
+            streamToUint8Array(errorsRscStream).then((serializedErrors) =>
+              sendToClient(client, {
+                type: HMR_MESSAGE_SENT_TO_BROWSER.ERRORS_TO_SHOW_IN_BROWSER,
+                serializedErrors,
+              })
+            )
+            errorsRscStreamsByHtmlRequestId.delete(htmlRequestId)
+          }
         } else {
           clientsWithoutHtmlRequestId.add(client)
           onUpgrade(client, { isLegacyClient: true })
@@ -1096,13 +1118,6 @@ export async function createHotReloaderTurbopack(
           }
 
           sendToClient(client, syncMessage)
-
-          if (htmlRequestId) {
-            connectReactDebugChannelForHtmlRequest(
-              htmlRequestId,
-              sendToClient.bind(null, client)
-            )
-          }
         })()
       })
     },
@@ -1180,6 +1195,22 @@ export async function createHotReloaderTurbopack(
           debugChannel,
           sendToClient.bind(null, client)
         )
+      }
+    },
+
+    sendErrorsToBrowser(errorsRscStream, htmlRequestId) {
+      const client = clientsByHtmlRequestId.get(htmlRequestId)
+      if (client !== undefined) {
+        streamToUint8Array(errorsRscStream).then((serializedErrors) => {
+          sendToClient(client, {
+            type: HMR_MESSAGE_SENT_TO_BROWSER.ERRORS_TO_SHOW_IN_BROWSER,
+            serializedErrors,
+          })
+        })
+      } else {
+        // If the client is not connected, store the errors stream so that we
+        // can send it when the client connects.
+        errorsRscStreamsByHtmlRequestId.set(htmlRequestId, errorsRscStream)
       }
     },
 
