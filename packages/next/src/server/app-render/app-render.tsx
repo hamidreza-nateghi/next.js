@@ -837,9 +837,7 @@ async function generateDynamicFlightRenderResultWithStagesInDev(
 
     const {
       stream: serverStream,
-      staticChunks,
-      runtimeChunks,
-      dynamicChunks,
+      accumulatedChunksPromise,
       staticInterruptReason,
       runtimeInterruptReason,
       staticStageEndTime,
@@ -864,9 +862,7 @@ async function generateDynamicFlightRenderResultWithStagesInDev(
       consoleAsyncStorage.run(
         { dim: true },
         spawnStaticShellValidationInDev,
-        staticChunks,
-        runtimeChunks,
-        dynamicChunks,
+        accumulatedChunksPromise,
         staticInterruptReason,
         runtimeInterruptReason,
         staticStageEndTime,
@@ -2705,9 +2701,7 @@ async function renderToStream(
       ) {
         const {
           stream: serverStream,
-          staticChunks,
-          runtimeChunks,
-          dynamicChunks,
+          accumulatedChunksPromise,
           staticInterruptReason,
           runtimeInterruptReason,
           staticStageEndTime,
@@ -2732,9 +2726,7 @@ async function renderToStream(
         consoleAsyncStorage.run(
           { dim: true },
           spawnStaticShellValidationInDev,
-          staticChunks,
-          runtimeChunks,
-          dynamicChunks,
+          accumulatedChunksPromise,
           staticInterruptReason,
           runtimeInterruptReason,
           staticStageEndTime,
@@ -3226,15 +3218,11 @@ async function renderWithRestartOnCacheMissInDev(
 
   let debugChannel = setReactDebugChannel && createDebugChannel()
 
-  const staticChunks: Array<Uint8Array> = []
-  const runtimeChunks: Array<Uint8Array> = []
-  const dynamicChunks: Array<Uint8Array> = []
-
   // Note: The stage controller starts out in the `Before` stage,
   // where sync IO does not cause aborts, so it's okay if it happens before render.
   const initialRscPayload = await getPayload(requestStore)
 
-  const maybeInitialServerStream = await workUnitAsyncStorage.run(
+  const maybeInitialStreamResult = await workUnitAsyncStorage.run(
     requestStore,
     () =>
       pipelineInSequentialTasks(
@@ -3261,17 +3249,14 @@ async function renderWithRestartOnCacheMissInDev(
           })
 
           const [continuationStream, accumulatingStream] = stream.tee()
-          accumulateStreamChunks(
+          const accumulatedChunksPromise = accumulateStreamChunks(
             accumulatingStream,
-            staticChunks,
-            runtimeChunks,
-            dynamicChunks,
             initialStageController,
             initialDataController.signal
           )
-          return continuationStream
+          return { stream: continuationStream, accumulatedChunksPromise }
         },
-        (stream) => {
+        ({ stream, accumulatedChunksPromise }) => {
           // Runtime stage
 
           if (initialStageController.currentStage === RenderStage.Abandoned) {
@@ -3292,12 +3277,12 @@ async function renderWithRestartOnCacheMissInDev(
           }
 
           initialStageController.advanceStage(RenderStage.Runtime)
-          return stream
+          return { stream, accumulatedChunksPromise }
         },
-        async (stream) => {
+        (result) => {
           // Dynamic stage
           if (
-            stream === null ||
+            result === null ||
             initialStageController.currentStage === RenderStage.Abandoned
           ) {
             // If we abandoned the render in the static or runtime stage, we won't proceed further.
@@ -3317,18 +3302,17 @@ async function renderWithRestartOnCacheMissInDev(
           // render we need the unblock runtime b/c it's essential
           // filling caches.
           initialStageController.advanceStage(RenderStage.Dynamic)
-          return stream
+          return result
         }
       )
   )
 
-  if (maybeInitialServerStream !== null) {
-    // No cache misses. We can use the stream as is.
+  if (maybeInitialStreamResult !== null) {
+    // No cache misses. We can use the result as-is.
     return {
-      stream: maybeInitialServerStream,
-      staticChunks,
-      runtimeChunks,
-      dynamicChunks,
+      stream: maybeInitialStreamResult.stream,
+      accumulatedChunksPromise:
+        maybeInitialStreamResult.accumulatedChunksPromise,
       staticInterruptReason: initialStageController.getStaticInterruptReason(),
       runtimeInterruptReason:
         initialStageController.getRuntimeInterruptReason(),
@@ -3389,17 +3373,11 @@ async function renderWithRestartOnCacheMissInDev(
   // We're not using it, so we need to create a new one.
   debugChannel = setReactDebugChannel && createDebugChannel()
 
-  // We had a cache miss and need to restart after filling caches. Let's clear out the
-  // staticChunks and runtimeChunks we previously accumulated
-  staticChunks.length = 0
-  runtimeChunks.length = 0
-  dynamicChunks.length = 0
-
   // Note: The stage controller starts out in the `Before` stage,
   // where sync IO does not cause aborts, so it's okay if it happens before render.
   const finalRscPayload = await getPayload(requestStore)
 
-  const finalServerStream = await workUnitAsyncStorage.run(requestStore, () =>
+  const finalStreamResult = await workUnitAsyncStorage.run(requestStore, () =>
     pipelineInSequentialTasks(
       () => {
         // Static stage
@@ -3417,25 +3395,22 @@ async function renderWithRestartOnCacheMissInDev(
         )
 
         const [continuationStream, accumulatingStream] = stream.tee()
-        accumulateStreamChunks(
+        const accumulatedChunksPromise = accumulateStreamChunks(
           accumulatingStream,
-          staticChunks,
-          runtimeChunks,
-          dynamicChunks,
           finalStageController,
           null
         )
-        return continuationStream
+        return { stream: continuationStream, accumulatedChunksPromise }
       },
-      (stream) => {
+      (result) => {
         // Runtime stage
         finalStageController.advanceStage(RenderStage.Runtime)
-        return stream
+        return result
       },
-      (stream) => {
+      (result) => {
         // Dynamic stage
         finalStageController.advanceStage(RenderStage.Dynamic)
-        return stream
+        return result
       }
     )
   )
@@ -3445,10 +3420,8 @@ async function renderWithRestartOnCacheMissInDev(
   }
 
   return {
-    stream: finalServerStream,
-    staticChunks,
-    runtimeChunks,
-    dynamicChunks,
+    stream: finalStreamResult.stream,
+    accumulatedChunksPromise: finalStreamResult.accumulatedChunksPromise,
     staticInterruptReason: finalStageController.getStaticInterruptReason(),
     runtimeInterruptReason: finalStageController.getRuntimeInterruptReason(),
     staticStageEndTime: finalStageController.getStaticStageEndTime(),
@@ -3458,14 +3431,20 @@ async function renderWithRestartOnCacheMissInDev(
   }
 }
 
+interface AccumulatedStreamChunks {
+  readonly staticChunks: Array<Uint8Array>
+  readonly runtimeChunks: Array<Uint8Array>
+  readonly dynamicChunks: Array<Uint8Array>
+}
+
 async function accumulateStreamChunks(
   stream: ReadableStream<Uint8Array>,
-  staticTarget: Array<Uint8Array>,
-  runtimeTarget: Array<Uint8Array>,
-  dynamicTarget: Array<Uint8Array>,
   stageController: StagedRenderingController,
   signal: AbortSignal | null
-): Promise<void> {
+): Promise<AccumulatedStreamChunks> {
+  const staticChunks: Array<Uint8Array> = []
+  const runtimeChunks: Array<Uint8Array> = []
+  const dynamicChunks: Array<Uint8Array> = []
   const reader = stream.getReader()
 
   let cancelled = false
@@ -3493,13 +3472,13 @@ async function accumulateStreamChunks(
             'Unexpected stream chunk while in Before stage'
           )
         case RenderStage.Static:
-          staticTarget.push(value)
+          staticChunks.push(value)
         // fall through
         case RenderStage.Runtime:
-          runtimeTarget.push(value)
+          runtimeChunks.push(value)
         // fall through
         case RenderStage.Dynamic:
-          dynamicTarget.push(value)
+          dynamicChunks.push(value)
           break
         case RenderStage.Abandoned:
           // If the render was abandoned, we won't use the chunks,
@@ -3513,6 +3492,8 @@ async function accumulateStreamChunks(
   } catch {
     // When we release the lock we may reject the read
   }
+
+  return { staticChunks, runtimeChunks, dynamicChunks }
 }
 
 function createAsyncApiPromisesInDev(
@@ -3663,9 +3644,7 @@ async function logMessagesAndSendErrorsToBrowser(
  * in conjunction with any changes to that function.
  */
 async function spawnStaticShellValidationInDev(
-  staticServerChunks: Array<Uint8Array>,
-  runtimeServerChunks: Array<Uint8Array>,
-  dynamicServerChunks: Array<Uint8Array>,
+  accumulatedChunksPromise: Promise<AccumulatedStreamChunks>,
   staticInterruptReason: Error | null,
   runtimeInterruptReason: Error | null,
   staticStageEndTime: number,
@@ -3676,9 +3655,6 @@ async function spawnStaticShellValidationInDev(
   fallbackRouteParams: OpaqueFallbackRouteParams | null,
   debugChannelClient: Readable | undefined
 ): Promise<void> {
-  // TODO replace this with a delay on the entire dev render once the result is propagated
-  // via the websocket and not the main render itself
-  await new Promise((r) => setTimeout(r, 2000))
   const {
     componentMod: ComponentMod,
     getDynamicParamFromSegment,
@@ -3712,12 +3688,15 @@ async function spawnStaticShellValidationInDev(
     return logMessagesAndSendErrorsToBrowser([runtimeInterruptReason], ctx)
   }
 
+  const { staticChunks, runtimeChunks, dynamicChunks } =
+    await accumulatedChunksPromise
+
   // First we warmup SSR with the runtime chunks. This ensures that when we do
   // the full prerender pass with dynamic tracking module loading won't
   // interrupt the prerender and can properly observe the entire content
   await warmupModuleCacheForRuntimeValidationInDev(
-    runtimeServerChunks,
-    dynamicServerChunks,
+    runtimeChunks,
+    dynamicChunks,
     rootParams,
     fallbackRouteParams,
     allowEmptyStaticShell,
@@ -3732,8 +3711,8 @@ async function spawnStaticShellValidationInDev(
   }
 
   const runtimeResult = await validateStagedShell(
-    runtimeServerChunks,
-    dynamicServerChunks,
+    runtimeChunks,
+    dynamicChunks,
     debugChunks,
     runtimeStageEndTime,
     rootParams,
@@ -3752,8 +3731,8 @@ async function spawnStaticShellValidationInDev(
   }
 
   const staticResult = await validateStagedShell(
-    staticServerChunks,
-    dynamicServerChunks,
+    staticChunks,
+    dynamicChunks,
     debugChunks,
     staticStageEndTime,
     rootParams,
