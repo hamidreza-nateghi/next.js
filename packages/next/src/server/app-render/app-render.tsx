@@ -3217,7 +3217,7 @@ async function renderWithRestartOnCacheMissInDev(
   const initialDataController = new AbortController() // Controls hanging promises we create
   const initialStageController = new StagedRenderingController(
     initialDataController.signal,
-    true
+    hasRuntimePrefetch
   )
 
   requestStore.prerenderResumeDataCache = prerenderResumeDataCache
