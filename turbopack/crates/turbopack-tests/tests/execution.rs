@@ -239,9 +239,12 @@ async fn run_inner_operation(
 struct TestOptions {
     #[serde(default = "default_tree_shaking_mode")]
     tree_shaking_mode: Option<TreeShakingMode>,
-    remove_unused_imports: Option<bool>,
-    remove_unused_exports: Option<bool>,
-    scope_hoisting: Option<bool>,
+    #[serde(default = "default_true")]
+    remove_unused_imports: bool,
+    #[serde(default = "default_true")]
+    remove_unused_exports: bool,
+    #[serde(default = "default_true")]
+    scope_hoisting: bool,
     #[serde(default)]
     minify: bool,
 }
@@ -250,13 +253,17 @@ fn default_tree_shaking_mode() -> Option<TreeShakingMode> {
     Some(TreeShakingMode::ReexportsOnly)
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for TestOptions {
     fn default() -> Self {
         Self {
             tree_shaking_mode: default_tree_shaking_mode(),
-            remove_unused_exports: None,
-            remove_unused_imports: None,
-            scope_hoisting: None,
+            remove_unused_exports: default_true(),
+            remove_unused_imports: default_true(),
+            scope_hoisting: default_true(),
             minify: false,
         }
     }
@@ -394,9 +401,6 @@ async fn run_test_operation(prepared_test: ResolvedVc<PreparedTest>) -> Result<V
         .resolved_cell(),
     );
 
-    let remove_unused_imports = options.remove_unused_imports.unwrap_or(true);
-    let remove_unused_exports = options.remove_unused_exports.unwrap_or(true);
-
     let asset_context: Vc<Box<dyn AssetContext>> = Vc::upcast(ModuleAssetContext::new(
         Default::default(),
         compile_time_info,
@@ -469,7 +473,11 @@ async fn run_test_operation(prepared_test: ResolvedVc<PreparedTest>) -> Result<V
 
     let entries = get_evaluate_entries(jest_entry_asset, asset_context, None);
 
-    let module_graph = ModuleGraph::from_modules(entries.graph_entries(), false);
+    let mut module_graph = ModuleGraph::from_modules(entries.graph_entries(), false);
+
+    if options.remove_unused_imports {
+        module_graph = module_graph.without_unused_references();
+    }
 
     let chunking_context = NodeJsChunkingContext::builder(
         project_root.clone(),
@@ -495,7 +503,7 @@ async fn run_test_operation(prepared_test: ResolvedVc<PreparedTest>) -> Result<V
             ..Default::default()
         },
     )
-    .module_merging(options.scope_hoisting.unwrap_or(true))
+    .module_merging(options.scope_hoisting)
     .minify_type(if options.minify {
         MinifyType::Minify {
             mangle: Some(MangleType::OptimalSize),
@@ -503,7 +511,7 @@ async fn run_test_operation(prepared_test: ResolvedVc<PreparedTest>) -> Result<V
     } else {
         MinifyType::NoMinify
     })
-    .export_usage(if remove_unused_exports {
+    .export_usage(if options.remove_unused_exports {
         Some(
             compute_export_usage_info(module_graph.to_resolved().await?)
                 .resolve_strongly_consistent()
