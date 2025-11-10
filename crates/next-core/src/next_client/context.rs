@@ -25,7 +25,7 @@ use turbopack_core::{
     compile_time_info::{CompileTimeDefines, CompileTimeInfo, FreeVarReference, FreeVarReferences},
     environment::{BrowserEnvironment, Environment, ExecutionEnvironment},
     free_var_references,
-    module_graph::export_usage::OptionExportUsageInfo,
+    module_graph::binding_usage_info::OptionBindingUsageInfo,
     resolve::{parse::Request, pattern::Pattern},
 };
 use turbopack_ecmascript::{AnalyzeMode, TypeofWindow, chunk::EcmascriptChunkType};
@@ -421,7 +421,7 @@ pub struct ClientChunkingContextOptions {
     pub chunk_suffix_path: Vc<Option<RcStr>>,
     pub environment: Vc<Environment>,
     pub module_id_strategy: Vc<Box<dyn ModuleIdStrategy>>,
-    pub export_usage: Vc<OptionExportUsageInfo>,
+    pub export_usage: Vc<OptionBindingUsageInfo>,
     pub minify: Vc<bool>,
     pub source_maps: Vc<bool>,
     pub no_mangling: Vc<bool>,
