@@ -93,7 +93,6 @@ pub enum ChunkGroupType {
 #[derive(Clone)]
 pub struct ChunkGroupResult {
     pub assets: ResolvedVc<OutputAssets>,
-    pub referenced_assets: ResolvedVc<OutputAssets>,
     pub references: ResolvedVc<OutputAssetsReferences>,
     pub availability_info: AvailabilityInfo,
 }
@@ -102,7 +101,6 @@ impl ChunkGroupResult {
     pub fn empty() -> Vc<Self> {
         ChunkGroupResult {
             assets: ResolvedVc::cell(vec![]),
-            referenced_assets: ResolvedVc::cell(vec![]),
             references: ResolvedVc::cell(vec![]),
             availability_info: AvailabilityInfo::Root,
         }
@@ -112,7 +110,6 @@ impl ChunkGroupResult {
     pub fn empty_resolved() -> ResolvedVc<Self> {
         ChunkGroupResult {
             assets: ResolvedVc::cell(vec![]),
-            referenced_assets: ResolvedVc::cell(vec![]),
             references: ResolvedVc::cell(vec![]),
             availability_info: AvailabilityInfo::Root,
         }
@@ -126,7 +123,6 @@ impl ChunkGroupResult {
     pub async fn output_assets_with_referenced(&self) -> Result<Vc<OutputAssetsWithReferenced>> {
         Ok(OutputAssetsWithReferenced {
             assets: self.assets,
-            referenced_assets: self.referenced_assets,
             references: self.references,
         }
         .cell())
@@ -137,11 +133,6 @@ impl ChunkGroupResult {
         let next = next.await?;
         Ok(ChunkGroupResult {
             assets: self.assets.concatenate(*next.assets).to_resolved().await?,
-            referenced_assets: self
-                .referenced_assets
-                .concatenate(*next.referenced_assets)
-                .to_resolved()
-                .await?,
             references: self
                 .references
                 .concatenate(*next.references)
@@ -159,7 +150,6 @@ impl ChunkGroupResult {
                 self.assets
                     .await?
                     .into_iter()
-                    .chain(self.referenced_assets.await?.into_iter())
                     .copied()
                     .map(ExpandOutputAssetsInput::Asset)
                     .chain(
@@ -183,25 +173,8 @@ impl ChunkGroupResult {
     }
 
     #[turbo_tasks::function]
-    pub async fn referenced_assets(&self) -> Result<Vc<OutputAssets>> {
-        Ok(Vc::cell(
-            expand_output_assets(
-                self.referenced_assets
-                    .await?
-                    .into_iter()
-                    .copied()
-                    .map(ExpandOutputAssetsInput::Asset)
-                    .chain(
-                        self.references
-                            .await?
-                            .into_iter()
-                            .copied()
-                            .map(ExpandOutputAssetsInput::Reference),
-                    ),
-                false,
-            )
-            .await?,
-        ))
+    pub fn references(&self) -> Vc<OutputAssetsReferences> {
+        *self.references
     }
 }
 
@@ -403,7 +376,7 @@ pub trait ChunkingContext {
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
         availability_info: AvailabilityInfo,
     ) -> Result<Vc<EntryChunkGroupResult>>;
 
@@ -468,7 +441,7 @@ pub trait ChunkingContextExt {
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
         availability_info: AvailabilityInfo,
     ) -> Vc<Box<dyn OutputAsset>>
     where
@@ -480,7 +453,7 @@ pub trait ChunkingContextExt {
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
     ) -> Vc<EntryChunkGroupResult>
     where
         Self: Send;
@@ -491,7 +464,7 @@ pub trait ChunkingContextExt {
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
     ) -> Vc<Box<dyn OutputAsset>>
     where
         Self: Send;
@@ -560,7 +533,7 @@ impl<T: ChunkingContext + Send + Upcast<Box<dyn ChunkingContext>>> ChunkingConte
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
         availability_info: AvailabilityInfo,
     ) -> Vc<Box<dyn OutputAsset>> {
         entry_chunk_group_asset(
@@ -569,7 +542,7 @@ impl<T: ChunkingContext + Send + Upcast<Box<dyn ChunkingContext>>> ChunkingConte
             evaluatable_assets,
             module_graph,
             extra_chunks,
-            extra_referenced_assets,
+            extra_references,
             availability_info,
         )
     }
@@ -580,14 +553,14 @@ impl<T: ChunkingContext + Send + Upcast<Box<dyn ChunkingContext>>> ChunkingConte
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
     ) -> Vc<EntryChunkGroupResult> {
         self.entry_chunk_group(
             path,
             evaluatable_assets,
             module_graph,
             extra_chunks,
-            extra_referenced_assets,
+            extra_references,
             AvailabilityInfo::Root,
         )
     }
@@ -598,7 +571,7 @@ impl<T: ChunkingContext + Send + Upcast<Box<dyn ChunkingContext>>> ChunkingConte
         evaluatable_assets: Vc<EvaluatableAssets>,
         module_graph: Vc<ModuleGraph>,
         extra_chunks: Vc<OutputAssets>,
-        extra_referenced_assets: Vc<OutputAssets>,
+        extra_references: Vc<OutputAssetsReferences>,
     ) -> Vc<Box<dyn OutputAsset>> {
         entry_chunk_group_asset(
             Vc::upcast_non_strict(self),
@@ -606,7 +579,7 @@ impl<T: ChunkingContext + Send + Upcast<Box<dyn ChunkingContext>>> ChunkingConte
             evaluatable_assets,
             module_graph,
             extra_chunks,
-            extra_referenced_assets,
+            extra_references,
             AvailabilityInfo::Root,
         )
     }
@@ -706,7 +679,7 @@ async fn entry_chunk_group_asset(
     evaluatable_assets: Vc<EvaluatableAssets>,
     module_graph: Vc<ModuleGraph>,
     extra_chunks: Vc<OutputAssets>,
-    extra_referenced_assets: Vc<OutputAssets>,
+    extra_references: Vc<OutputAssetsReferences>,
     availability_info: AvailabilityInfo,
 ) -> Result<Vc<Box<dyn OutputAsset>>> {
     Ok(*chunking_context
@@ -715,7 +688,7 @@ async fn entry_chunk_group_asset(
             evaluatable_assets,
             module_graph,
             extra_chunks,
-            extra_referenced_assets,
+            extra_references,
             availability_info,
         )
         .await?

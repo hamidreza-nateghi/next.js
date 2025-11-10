@@ -50,7 +50,10 @@ use turbopack_core::{
         chunk_group_info::{ChunkGroup, ChunkGroupEntry},
         export_usage::compute_export_usage_info,
     },
-    output::{OutputAsset, OutputAssets, OutputAssetsReference, OutputAssetsWithReferenced},
+    output::{
+        OutputAsset, OutputAssets, OutputAssetsReference, OutputAssetsReferences,
+        OutputAssetsWithReferenced,
+    },
     reference_type::{EntryReferenceSubType, ReferenceType},
     source::Source,
 };
@@ -534,13 +537,12 @@ async fn run_test_operation(resource: RcStr) -> Result<Vc<FileSystemPath>> {
                             evaluatable_assets,
                             module_graph,
                             OutputAssets::empty(),
-                            OutputAssets::empty(),
+                            OutputAssetsReferences::empty(),
                             AvailabilityInfo::Root,
                         )
                         .await?
                         .asset,
                 ]),
-                referenced_assets: ResolvedVc::cell(vec![]),
                 references: ResolvedVc::cell(vec![]),
             }
             .cell()
