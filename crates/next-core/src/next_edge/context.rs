@@ -204,6 +204,7 @@ pub struct EdgeChunkingContextOptions {
     pub environment: Vc<Environment>,
     pub module_id_strategy: Vc<Box<dyn ModuleIdStrategy>>,
     pub export_usage: Vc<OptionBindingUsageInfo>,
+    pub unused_references: Vc<OptionBindingUsageInfo>,
     pub turbo_minify: Vc<bool>,
     pub turbo_source_maps: Vc<bool>,
     pub no_mangling: Vc<bool>,
@@ -225,6 +226,7 @@ pub async fn get_edge_chunking_context_with_client_assets(
         environment,
         module_id_strategy,
         export_usage,
+        unused_references,
         turbo_minify,
         turbo_source_maps,
         no_mangling,
@@ -259,7 +261,8 @@ pub async fn get_edge_chunking_context_with_client_assets(
         SourceMapsType::None
     })
     .module_id_strategy(module_id_strategy.to_resolved().await?)
-    .export_usage(*export_usage.await?);
+    .export_usage(*export_usage.await?)
+    .unused_references(*unused_references.await?);
 
     if !next_mode.is_development() {
         builder = builder
@@ -296,6 +299,7 @@ pub async fn get_edge_chunking_context(
         environment,
         module_id_strategy,
         export_usage,
+        unused_references,
         turbo_minify,
         turbo_source_maps,
         no_mangling,
@@ -336,7 +340,8 @@ pub async fn get_edge_chunking_context(
         SourceMapsType::None
     })
     .module_id_strategy(module_id_strategy.to_resolved().await?)
-    .export_usage(*export_usage.await?);
+    .export_usage(*export_usage.await?)
+    .unused_references(*unused_references.await?);
 
     if !next_mode.is_development() {
         builder = builder

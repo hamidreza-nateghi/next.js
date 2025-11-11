@@ -422,6 +422,7 @@ pub struct ClientChunkingContextOptions {
     pub environment: Vc<Environment>,
     pub module_id_strategy: Vc<Box<dyn ModuleIdStrategy>>,
     pub export_usage: Vc<OptionBindingUsageInfo>,
+    pub unused_references: Vc<OptionBindingUsageInfo>,
     pub minify: Vc<bool>,
     pub source_maps: Vc<bool>,
     pub no_mangling: Vc<bool>,
@@ -444,6 +445,7 @@ pub async fn get_client_chunking_context(
         environment,
         module_id_strategy,
         export_usage,
+        unused_references,
         minify,
         source_maps,
         no_mangling,
@@ -482,6 +484,7 @@ pub async fn get_client_chunking_context(
     .asset_base_path(Some(asset_prefix))
     .current_chunk_method(CurrentChunkMethod::DocumentCurrentScript)
     .export_usage(*export_usage.await?)
+    .unused_references(*unused_references.await?)
     .module_id_strategy(module_id_strategy.to_resolved().await?)
     .debug_ids(*debug_ids.await?)
     .should_use_absolute_url_references(*should_use_absolute_url_references.await?);
