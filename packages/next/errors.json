@@ -926,5 +926,6 @@
   "925": "You cannot define a route with the same specificity as an optional catch-all route (\"%s\" and \"/[[...%s]]\").",
   "926": "Optional route parameters are not yet supported (\"[%s]\") in route \"%s\".",
   "927": "An unexpected error occurred while adjusting `_idleStart` on an atomic timer",
-  "928": "createAtomicTimerGroup cannot be called in the edge runtime"
+  "928": "createAtomicTimerGroup cannot be called in the edge runtime",
+  "929": "Cannot schedule more timers into a group that already executed"
 }
