@@ -1,7 +1,7 @@
 'use client'
 
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import useSWR from 'swr'
 import { ImportChain } from '@/components/import-chain'
 import {
@@ -118,6 +118,22 @@ export default function Home() {
       return hasEnvironment && hasType
     }
   }, [analyzeData, environmentFilter, typeFilter])
+
+  const isModulePolyfillChunk = useCallback(
+    (sourceIndex: number) => {
+      if (!analyzeData) return false
+      return analyzeData.isPolyfillModule(sourceIndex)
+    },
+    [analyzeData]
+  )
+
+  const isNoModulePolyfillChunk = useCallback(
+    (sourceIndex: number) => {
+      if (!analyzeData) return false
+      return analyzeData.isPolyfillNoModule(sourceIndex)
+    },
+    [analyzeData]
+  )
 
   const handleMouseDown = () => {
     setIsResizing(true)
@@ -267,6 +283,8 @@ export default function Home() {
                 onHoveredNodeChange={setHoveredNodeInfo}
                 searchQuery={searchQuery}
                 filterSource={filterSource}
+                isModulePolyfillChunk={isModulePolyfillChunk}
+                isNoModulePolyfillChunk={isNoModulePolyfillChunk}
               />
             </div>
 
@@ -289,12 +307,37 @@ export default function Home() {
                 {selectedSourceIndex != null &&
                   analyzeData.source(selectedSourceIndex) && (
                     <>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Output Size:{' '}
-                        {formatBytes(
-                          analyzeData.getSourceOutputSize(selectedSourceIndex)
+                      <dl className="space-y-2">
+                        <div>
+                          <dt className="text-xs text-muted-foreground inline">
+                            Output Size:{' '}
+                          </dt>
+                          <dd className="text-xs text-muted-foreground inline">
+                            {formatBytes(
+                              analyzeData.getSourceOutputSize(
+                                selectedSourceIndex
+                              )
+                            )}
+                          </dd>
+                        </div>
+                        {(isModulePolyfillChunk(selectedSourceIndex) ||
+                          isNoModulePolyfillChunk(selectedSourceIndex)) && (
+                          <div className="flex items-center gap-2">
+                            <dt className="inline-flex items-center rounded-md bg-pink-50 dark:bg-pink-900/30 px-2 py-1 text-xs font-medium text-pink-800 dark:text-pink-300 ring-1 ring-inset ring-pink-800/10 dark:ring-pink-300/20 shrink-0">
+                              Polyfill
+                            </dt>
+                            <dd className="text-xs text-muted-foreground">
+                              Next.js built-in polyfills
+                              {isNoModulePolyfillChunk(selectedSourceIndex) ? (
+                                <>
+                                  . <pre>polyfill-nomodule.js</pre> is only sent
+                                  to legacy browsers.
+                                </>
+                              ) : null}
+                            </dd>
+                          </div>
                         )}
-                      </p>
+                      </dl>
                       {modulesData && (
                         <ImportChain
                           key={selectedSourceIndex}

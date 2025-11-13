@@ -367,7 +367,10 @@ pub async fn analyze_output_assets(output_assets: Vc<OutputAssets>) -> Result<Vc
             // Skip source maps.
             continue;
         }
-        let output_file_index = builder.add_output_file(AnalyzeOutputFile { filename });
+
+        let output_file_index = builder.add_output_file(AnalyzeOutputFile {
+            filename: filename.clone(),
+        });
         let chunk_parts = split_output_asset_into_parts(*asset).await?;
         for chunk_part in chunk_parts {
             let source_index = builder

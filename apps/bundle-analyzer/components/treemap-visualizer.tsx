@@ -1,6 +1,6 @@
 'use client'
 
-import { darken, lighten } from 'polished'
+import { darken, lighten, readableColor } from 'polished'
 import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AnalyzeData } from '@/lib/analyze-data'
@@ -23,6 +23,8 @@ interface TreemapVisualizerProps {
   onHoveredNodeChangeDelayed?: (nodeInfo: LayoutNodeInfo | null) => void
   searchQuery?: string
   filterSource?: (sourceIndex: number) => boolean
+  isModulePolyfillChunk?: (sourceIndex: number) => boolean
+  isNoModulePolyfillChunk?: (sourceIndex: number) => boolean
 }
 
 function getFileColor(node: {
@@ -184,6 +186,8 @@ function drawTreemap(
   searchQuery: string,
   originalData: LayoutNode,
   immediateHoveredSourceIndex: number | undefined,
+  isModulePolyfillChunk: (sourceIndex: number) => boolean,
+  isNoModuePolyfillChunk: (sourceIndex: number) => boolean,
   currentPath: string[] = [],
   parentFadedOut = false,
   insideActiveSubtree = false
@@ -241,6 +245,8 @@ function drawTreemap(
             searchQuery,
             originalData,
             immediateHoveredSourceIndex,
+            isModulePolyfillChunk,
+            isNoModuePolyfillChunk,
             path,
             parentFadedOut,
             insideActiveSubtree
@@ -305,6 +311,13 @@ function drawTreemap(
 
   if (type === 'file') {
     let color = getFileColor(node)
+    const isPolyfill =
+      sourceIndex !== undefined &&
+      (isModulePolyfillChunk(sourceIndex) ||
+        isNoModuePolyfillChunk(sourceIndex))
+    if (isPolyfill) {
+      color = '#DE2670'
+    }
 
     // Apply brightness boost to immediately hovered node
     if (isImmediateHovered) {
@@ -320,7 +333,9 @@ function drawTreemap(
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
 
     if (rect.width > 60 && rect.height > 30) {
-      ctx.fillStyle = colors.text
+      // Use readableColor to ensure good contrast against the background
+      const textColor = isPolyfill ? readableColor(color) : colors.text
+      ctx.fillStyle = textColor
       ctx.font = '12px sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -467,6 +482,8 @@ function drawTreemap(
           searchQuery,
           originalData,
           immediateHoveredSourceIndex,
+          isModulePolyfillChunk,
+          isNoModuePolyfillChunk,
           path,
           childFadeOut,
           childInsideActiveSubtree
@@ -556,6 +573,8 @@ export function TreemapVisualizer({
   onHoveredNodeChangeDelayed,
   searchQuery = '',
   filterSource,
+  isModulePolyfillChunk = () => false,
+  isNoModulePolyfillChunk = () => false,
 }: TreemapVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -707,7 +726,9 @@ export function TreemapVisualizer({
       focusedAncestorChain,
       searchQuery,
       layout,
-      hoveredNode?.sourceIndex
+      hoveredNode?.sourceIndex,
+      isModulePolyfillChunk,
+      isNoModulePolyfillChunk
     )
   }, [
     layout,
@@ -719,6 +740,8 @@ export function TreemapVisualizer({
     focusedAncestorChain,
     searchQuery,
     hoveredNode,
+    isModulePolyfillChunk,
+    isNoModulePolyfillChunk,
   ])
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
