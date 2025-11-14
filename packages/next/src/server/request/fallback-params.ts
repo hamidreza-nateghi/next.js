@@ -94,7 +94,7 @@ export function getFallbackRouteParams(
   // Extract the pathname-contributing segments from the loader tree. This
   // mirrors the logic in buildAppStaticPaths where we determine which segments
   // actually contribute to the pathname.
-  const pathnameRouteParamSegments =
+  const { pathnameRouteParamSegments, params } =
     extractPathnameRouteParamSegmentsFromLoaderTree(
       routeModule.userland.loaderTree,
       route
@@ -117,7 +117,7 @@ export function getFallbackRouteParams(
   // resolveRouteParamsFromTree determine which params are unknown.
   resolveRouteParamsFromTree(
     routeModule.userland.loaderTree,
-    {}, // No static params known at runtime
+    params, // Static params extracted from the page
     route, // The page pattern with placeholders
     fallbackRouteParams // Will be mutated to add route params
   )

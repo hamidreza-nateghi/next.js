@@ -45,6 +45,168 @@ export function normalizePathname(pathname: string) {
   return pathname.replace(/\\/g, '/').replace(/(?!^)\/$/, '')
 }
 
+export function interceptionPrefixFromParamType(
+  paramType: DynamicParamTypes
+): string | null {
+  switch (paramType) {
+    case 'catchall-intercepted-(..)(..)':
+    case 'dynamic-intercepted-(..)(..)':
+      return '(..)(..)'
+    case 'catchall-intercepted-(.)':
+    case 'dynamic-intercepted-(.)':
+      return '(.)'
+    case 'catchall-intercepted-(..)':
+    case 'dynamic-intercepted-(..)':
+      return '(..)'
+    case 'catchall-intercepted-(...)':
+    case 'dynamic-intercepted-(...)':
+      return '(...)'
+    case 'catchall':
+    case 'dynamic':
+    case 'optional-catchall':
+    default:
+      return null
+  }
+}
+
+/**
+ * Extracts the param value from a path segment, handling interception markers
+ * based on the expected param type.
+ *
+ * @param pathSegment - The path segment to extract the value from
+ * @param params - The current params object for resolving dynamic param references
+ * @param paramType - The expected param type which may include interception marker info
+ * @returns The extracted param value
+ */
+function getParamValueFromSegment(
+  pathSegment: NormalizedAppRouteSegment,
+  params: Params,
+  paramType: DynamicParamTypes
+): string {
+  // If the segment is dynamic, resolve it from the params object
+  if (pathSegment.type === 'dynamic') {
+    return params[pathSegment.param.paramName] as string
+  }
+
+  // If the paramType indicates this is an intercepted param, strip the marker
+  // that matches the interception marker in the param type
+  const interceptionPrefix = interceptionPrefixFromParamType(paramType)
+  if (interceptionPrefix === pathSegment.interceptionMarker) {
+    return pathSegment.name.replace(pathSegment.interceptionMarker, '')
+  }
+
+  // For static segments, use the name
+  return pathSegment.name
+}
+
+/**
+ * Resolves a route parameter value from the route segments at the given depth.
+ * This shared logic is used by both extractPathnameRouteParamSegmentsFromLoaderTree
+ * and resolveRouteParamsFromTree.
+ *
+ * @param paramName - The parameter name to resolve
+ * @param paramType - The parameter type (dynamic, catchall, etc.)
+ * @param depth - The current depth in the route tree
+ * @param route - The normalized route containing segments
+ * @param params - The current params object (used to resolve embedded param references)
+ * @param options - Configuration options
+ * @returns The resolved parameter value, or undefined if it cannot be resolved
+ */
+export function resolveParamValue(
+  paramName: string,
+  paramType: DynamicParamTypes,
+  depth: number,
+  route: NormalizedAppRoute,
+  params: Params
+): string | string[] | undefined {
+  switch (paramType) {
+    case 'catchall':
+    case 'optional-catchall':
+    case 'catchall-intercepted-(..)(..)':
+    case 'catchall-intercepted-(.)':
+    case 'catchall-intercepted-(..)':
+    case 'catchall-intercepted-(...)':
+      // For catchall routes, derive from pathname using depth to determine
+      // which segments to use
+      const processedSegments: string[] = []
+
+      // Process segments to handle any embedded dynamic params
+      for (let index = depth; index < route.segments.length; index++) {
+        const pathSegment = route.segments[index]
+
+        if (pathSegment.type === 'static') {
+          let value = pathSegment.name
+
+          // For intercepted catch-all params, strip the marker from the first segment
+          const interceptionPrefix = interceptionPrefixFromParamType(paramType)
+          if (
+            interceptionPrefix &&
+            index === depth &&
+            interceptionPrefix === pathSegment.interceptionMarker
+          ) {
+            // Strip the interception marker from the value
+            value = value.replace(pathSegment.interceptionMarker, '')
+          }
+
+          processedSegments.push(value)
+        } else {
+          // If the segment is a param placeholder, check if we have its value
+          if (!params.hasOwnProperty(pathSegment.param.paramName)) {
+            // Unknown param placeholder in pathname - can't derive full value
+            return undefined
+          }
+
+          // If the segment matches a param, use the param value
+          // We don't encode values here as that's handled during retrieval.
+          const paramValue = params[pathSegment.param.paramName]
+          if (Array.isArray(paramValue)) {
+            processedSegments.push(...paramValue)
+          } else {
+            processedSegments.push(paramValue as string)
+          }
+        }
+      }
+
+      if (processedSegments.length > 0 || paramType === 'optional-catchall') {
+        return processedSegments
+      } else {
+        // We shouldn't be able to match a catchall segment without any path
+        // segments if it's not an optional catchall
+        throw new InvariantError(
+          `Unexpected empty path segments match for a route "${route.pathname}" with param "${paramName}" of type "${paramType}"`
+        )
+      }
+    case 'dynamic':
+    case 'dynamic-intercepted-(..)(..)':
+    case 'dynamic-intercepted-(.)':
+    case 'dynamic-intercepted-(..)':
+    case 'dynamic-intercepted-(...)':
+      // For regular dynamic parameters, take the segment at this depth
+      if (depth < route.segments.length) {
+        const pathSegment = route.segments[depth]
+
+        // Check if the segment at this depth is a placeholder for an unknown param
+        if (
+          pathSegment.type === 'dynamic' &&
+          !params.hasOwnProperty(pathSegment.param.paramName)
+        ) {
+          // The segment is a placeholder like [category] and we don't have the value
+          return undefined
+        }
+
+        // If the segment matches a param, use the param value from params object
+        // Otherwise it's a static segment, just use it directly
+        // We don't encode values here as that's handled during retrieval
+        return getParamValueFromSegment(pathSegment, params, paramType)
+      }
+
+      return undefined
+
+    default:
+      paramType satisfies never
+  }
+}
+
 /**
  * Validates that the static segments in currentPath match the corresponding
  * segments in targetSegments. This ensures we only extract dynamic parameters
@@ -101,8 +263,8 @@ function validatePrefixMatch(
     else if (
       pathSegment.type === 'dynamic' &&
       targetPathSegment.type === 'dynamic' &&
-      pathSegment.param.type !== targetPathSegment.param.type &&
-      pathSegment.param.param !== targetPathSegment.param.param
+      pathSegment.param.paramType !== targetPathSegment.param.paramType &&
+      pathSegment.param.paramName !== targetPathSegment.param.paramName
     ) {
       return false
     }
@@ -132,10 +294,12 @@ export function extractPathnameRouteParamSegments(
 }> {
   // For AppPageRouteModule, use the loaderTree traversal approach
   if (isAppPageRouteModule(routeModule)) {
-    return extractPathnameRouteParamSegmentsFromLoaderTree(
-      routeModule.userland.loaderTree,
-      route
-    )
+    const { pathnameRouteParamSegments } =
+      extractPathnameRouteParamSegmentsFromLoaderTree(
+        routeModule.userland.loaderTree,
+        route
+      )
+    return pathnameRouteParamSegments
   }
 
   return extractPathnameRouteParamSegmentsFromSegments(segments)
@@ -174,25 +338,30 @@ export function extractPathnameRouteParamSegmentsFromSegments(
 }
 
 /**
- * Extracts pathname route param segments from a loader tree.
+ * Extracts pathname route param segments from a loader tree and resolves
+ * parameter values from static segments in the route.
  *
  * @param loaderTree - The loader tree structure containing route hierarchy
- * @param page - The target pathname to match against
- * @returns Array of segments with param info that contribute to the pathname
+ * @param route - The target route to match against
+ * @returns Object containing pathname route param segments and resolved params
  */
 export function extractPathnameRouteParamSegmentsFromLoaderTree(
   loaderTree: LoaderTree,
   route: NormalizedAppRoute
-): Array<{
-  readonly name: string
-  readonly paramName: string
-  readonly paramType: DynamicParamTypes
-}> {
-  const result: Array<{
+): {
+  pathnameRouteParamSegments: Array<{
+    readonly name: string
+    readonly paramName: string
+    readonly paramType: DynamicParamTypes
+  }>
+  params: Params
+} {
+  const pathnameRouteParamSegments: Array<{
     readonly name: string
     readonly paramName: string
     readonly paramType: DynamicParamTypes
   }> = []
+  const params: Params = {}
 
   // BFS traversal with depth and path tracking
   const queue: Array<{
@@ -224,11 +393,7 @@ export function extractPathnameRouteParamSegmentsFromLoaderTree(
 
     // Check if this segment has a param and matches the target pathname at this depth
     if (appSegment?.type === 'dynamic') {
-      const { param: paramName, type: paramType } = appSegment.param
-
-      // Note: paramType already includes -intercepted- suffix if the segment itself
-      // has an interception marker (e.g., "(.)[id]" → "dynamic-intercepted-(.)")
-      // This is handled by getSegmentParam, not here.
+      const { paramName, paramType } = appSegment.param
 
       // Check if this segment is at the correct depth in the target pathname
       // A segment matches if:
@@ -242,7 +407,7 @@ export function extractPathnameRouteParamSegmentsFromLoaderTree(
         if (targetSegment.type === 'dynamic') {
           // Check that parameter names match exactly
           // This prevents [category] from matching against /[id]
-          if (paramName !== targetSegment.param.param) {
+          if (paramName !== targetSegment.param.paramName) {
             continue // Different param names, skip this segment
           }
 
@@ -250,12 +415,27 @@ export function extractPathnameRouteParamSegmentsFromLoaderTree(
           // the target pathname. This prevents false matches like extracting
           // [slug] from "/news/[slug]" when the tree has "/blog/[slug]"
           if (validatePrefixMatch(currentPath, route)) {
-            result.push({
+            pathnameRouteParamSegments.push({
               name: segment,
               paramName,
               paramType,
             })
           }
+        }
+      }
+
+      // Resolve parameter value if it's not already known.
+      if (!params.hasOwnProperty(paramName)) {
+        const paramValue = resolveParamValue(
+          paramName,
+          paramType,
+          depth,
+          route,
+          params
+        )
+
+        if (paramValue !== undefined) {
+          params[paramName] = paramValue
         }
       }
     }
@@ -270,7 +450,7 @@ export function extractPathnameRouteParamSegmentsFromLoaderTree(
     }
   }
 
-  return result
+  return { pathnameRouteParamSegments, params }
 }
 
 /**
@@ -312,100 +492,26 @@ export function resolveRouteParamsFromTree(
     // not already known and is not already marked as a fallback route param.
     if (
       appSegment?.type === 'dynamic' &&
-      !params.hasOwnProperty(appSegment.param.param) &&
+      !params.hasOwnProperty(appSegment.param.paramName) &&
       !fallbackRouteParams.some(
-        (param) => param.paramName === appSegment.param.param
+        (param) => param.paramName === appSegment.param.paramName
       )
     ) {
-      const { param: paramName, type: paramType } = appSegment.param
+      const { paramName, paramType } = appSegment.param
 
-      switch (paramType) {
-        case 'catchall':
-        case 'optional-catchall':
-        case 'catchall-intercepted-(..)(..)':
-        case 'catchall-intercepted-(.)':
-        case 'catchall-intercepted-(..)':
-        case 'catchall-intercepted-(...)':
-          // For catchall routes, derive from pathname using depth to determine
-          // which segments to use
-          const remainingSegments = route.segments.slice(depth)
+      const paramValue = resolveParamValue(
+        paramName,
+        paramType,
+        depth,
+        route,
+        params
+      )
 
-          // Process segments to handle any embedded dynamic params
-          // Track if we encounter any unknown param placeholders
-          let hasUnknownParam = false
-          const processedSegments = remainingSegments
-            .flatMap((pathSegment) => {
-              if (pathSegment.type === 'static') {
-                return pathSegment.name
-              }
-
-              // If the segment is a param placeholder, check if we have its value
-              if (!params.hasOwnProperty(pathSegment.param.param)) {
-                // Unknown param placeholder in pathname - can't derive full value
-                hasUnknownParam = true
-                return undefined
-              }
-
-              // If the segment matches a param, return the param value
-              // We don't encode values here as that's handled during retrieval.
-              return params[pathSegment.param.param]
-            })
-            .filter((s) => s !== undefined)
-
-          // If we encountered any unknown param placeholders, we can't derive
-          // the full catch-all value from the pathname, so mark as fallback.
-          if (hasUnknownParam) {
-            fallbackRouteParams.push({ paramName, paramType })
-            break
-          }
-
-          if (processedSegments.length > 0) {
-            params[paramName] = processedSegments
-          } else if (paramType === 'optional-catchall') {
-            params[paramName] = []
-          } else {
-            // We shouldn't be able to match a catchall segment without any path
-            // segments if it's not an optional catchall
-            throw new InvariantError(
-              `Unexpected empty path segments match for a route "${route.pathname}" with param "${paramName}" of type "${paramType}"`
-            )
-          }
-          break
-
-        case 'dynamic':
-        case 'dynamic-intercepted-(..)(..)':
-        case 'dynamic-intercepted-(.)':
-        case 'dynamic-intercepted-(..)':
-        case 'dynamic-intercepted-(...)':
-          // For regular dynamic parameters, take the segment at this depth
-          if (depth < route.segments.length) {
-            const pathSegment = route.segments[depth]
-
-            // Check if the segment at this depth is a placeholder for an unknown param
-            if (
-              pathSegment.type === 'dynamic' &&
-              !params.hasOwnProperty(pathSegment.param.param)
-            ) {
-              // The segment is a placeholder like [category] and we don't have the value
-              fallbackRouteParams.push({ paramName, paramType })
-              break
-            }
-
-            // If the segment matches a param, use the param value from params object
-            // Otherwise it's a static segment, just use it directly
-            // We don't encode values here as that's handled during retrieval
-            params[paramName] =
-              pathSegment.type === 'dynamic'
-                ? params[pathSegment.param.param]
-                : pathSegment.name
-          } else {
-            // No segment at this depth, mark as fallback.
-            fallbackRouteParams.push({ paramName, paramType })
-          }
-          break
-
-        default:
-          paramType satisfies never
+      if (paramValue !== undefined) {
+        params[paramName] = paramValue
+      } else if (paramType !== 'optional-catchall') {
+        // If we couldn't resolve the param, mark it as a fallback
+        fallbackRouteParams.push({ paramName, paramType })
       }
     }
 

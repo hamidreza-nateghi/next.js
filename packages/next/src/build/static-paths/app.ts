@@ -17,6 +17,7 @@ import {
   encodeParam,
   extractPathnameRouteParamSegments,
   resolveRouteParamsFromTree,
+  interceptionPrefixFromParamType,
 } from './utils'
 import escapePathDelimiters from '../../shared/lib/router/utils/escape-path-delimiters'
 import { createIncrementalCache } from '../../export/helpers/create-incremental-cache'
@@ -644,30 +645,7 @@ function createReplacements(
   // Determine the prefix to use for the interception marker.
   let prefix: string
   if (segment.paramType) {
-    switch (segment.paramType) {
-      case 'catchall-intercepted-(.)':
-      case 'dynamic-intercepted-(.)':
-        prefix = '(.)'
-        break
-      case 'catchall-intercepted-(..)(..)':
-      case 'dynamic-intercepted-(..)(..)':
-        prefix = '(..)(..)'
-        break
-      case 'catchall-intercepted-(..)':
-      case 'dynamic-intercepted-(..)':
-        prefix = '(..)'
-        break
-      case 'catchall-intercepted-(...)':
-      case 'dynamic-intercepted-(...)':
-        prefix = '(...)'
-        break
-      case 'catchall':
-      case 'dynamic':
-      case 'optional-catchall':
-      default:
-        prefix = ''
-        break
-    }
+    prefix = interceptionPrefixFromParamType(segment.paramType) ?? ''
   } else {
     prefix = ''
   }
@@ -811,7 +789,7 @@ export async function buildAppStaticPaths({
     // dynamicParams set to false.
     if (
       segment.paramName &&
-      segment.isDynamicSegment &&
+      segment.paramType &&
       segment.config?.dynamicParams === false
     ) {
       for (const params of routeParams) {
@@ -828,7 +806,8 @@ export async function buildAppStaticPaths({
     }
 
     if (
-      segment.isDynamicSegment &&
+      segment.paramName &&
+      segment.paramType &&
       typeof segment.generateStaticParams !== 'function'
     ) {
       lastDynamicSegmentHadGenerateStaticParams = false

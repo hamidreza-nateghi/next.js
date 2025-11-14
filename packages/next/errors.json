@@ -926,5 +926,6 @@
   "925": "You cannot define a route with the same specificity as an optional catch-all route (\"%s\" and \"/[[...%s]]\").",
   "926": "Optional route parameters are not yet supported (\"[%s]\") in route \"%s\".",
   "927": "Expected a dynamic route, but got a static route: %s",
-  "928": "Unexpected empty path segments match for a route \"%s\" with param \"%s\" of type \"%s\""
+  "928": "Unexpected empty path segments match for a route \"%s\" with param \"%s\" of type \"%s\"",
+  "929": "Could not resolve param value for segment: %s"
 }
